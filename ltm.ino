@@ -45,10 +45,10 @@ int avg=3;
 char unit[9]="";
 int lcdfsd=0;
 float vref=1.0,vcc=3.3,r13=2.2e5,r14=1e5,toffset=0.0,dissfact=1e6;
-float rs,sha,shb,shc,temperature;
+float slope,intercept,rs,sha,shb,shc,beta,r25;
 char name[21];
 char result1[RESULTL][21]; //timestamp array
-float result2[RESULTL]; //temperature array
+float result,result2[RESULTL]; //result array
 int resulti,resultn;
 int i,j;
 bool tick1Occured,timeset;
@@ -63,7 +63,7 @@ Ticker ticker1;
 PageElement  elm;
 PageBuilder  page;
 String currentUri;
-char ts[21],ts2[7];
+char ts[21],ts2[7],algorithm[2],configfilename[32];
 
 void cbtick1(){
   tick1Occured=true;
@@ -136,9 +136,9 @@ int config(const char* cfgfile){
     Serial.println("Reading config file");
     File configFile=LittleFS.open(cfgfile,"r");
     if (configFile){
+      Serial.println("Opened config file");
       resulti=0;
       resultn=0;
-      Serial.println("Opened config file");
       size_t size=configFile.size();
       // Allocate a buffer to store contents of the file.
       std::unique_ptr<char[]> buf(new char[size]);
@@ -155,41 +155,67 @@ int config(const char* cfgfile){
       strncpy(hostname,json["hostname"],11);
       hostname[10]='\0';
       Serial.println(hostname);
+      strncpy(algorithm,json["algorithm"],1);
+      algorithm[1]='\0';
+      Serial.print("Algorithm: ");
+      Serial.print(algorithm);
       if (json.containsKey("vcc"))vcc=json["vcc"];
-      if (json.containsKey("vref"))vref=json["vref"];
-      if (json.containsKey("r13"))r13=json["r13"];
-      if (json.containsKey("r14"))r14=json["r14"];
       if (json.containsKey("dissfact"))dissfact=json["dissfact"];
+      slope=json["slope"];
+      intercept=json["intercept"];
       toffset=json["toffset"];
       rs=json["rs"];
       sha=json["sha"];
       shb=json["shb"];
       shc=json["shc"];
       avg=json["avg"];
+      r25=json["r25"];
+      beta=json["beta"];
+      lcdfsd=json["lcdfsd"];
       strncpy(unit,json["unit"],sizeof(unit));
       strncpy(name,json["name"],sizeof(name));
       unit[sizeof(unit)-1]='\0';
-      lcdfsd=json["lcdfsd"];
+      Serial.print(", Slope: ");
+      Serial.print(slope,5);
+      Serial.print(", Intercept: ");
+      Serial.print(intercept,5);
+      Serial.print(", lcdfsd: ");
+      Serial.println(lcdfsd,1);
+
+      switch(algorithm[0]){
+      case 'v':
+      break;
+      case 's':
       Serial.print("vcc: ");
       Serial.print(vcc,3);
-      Serial.print(",vref: ");
-      Serial.print(vref,3);
-      Serial.print(",r13: ");
-      Serial.print(r13,2);
-      Serial.print(",r14: ");
-      Serial.print(r14,2);
-      Serial.print(",dissfact: ");
-      Serial.println(dissfact,5);
-      Serial.print("toffset: ");
+      Serial.print(", rs: ");
+      Serial.print(rs,1);
+      Serial.print(", dissfact: ");
+      Serial.print(dissfact,5);
+      Serial.print(", toffset: ");
       Serial.print(toffset,2);
-      Serial.print(",rs: ");
-      Serial.print(rs,5);
-      Serial.print(",sha: ");
+      Serial.print(", sha: ");
       Serial.print(sha,8);
-      Serial.print(",shb: ");
+      Serial.print(", shb: ");
       Serial.print(shb,8);
-      Serial.print(",shc: ");
+      Serial.print(", shc: ");
       Serial.println(shc,12);
+      break;
+      case 'b':
+      Serial.print("vcc: ");
+      Serial.print(vcc,3);
+      Serial.print(", rs: ");
+      Serial.print(rs,1);
+      Serial.print(", dissfact: ");
+      Serial.print(dissfact,5);
+      Serial.print(", toffset: ");
+      Serial.print(toffset,2);
+      Serial.print(", r25: ");
+      Serial.print(r25,1);
+      Serial.print(", beta: ");
+      Serial.println(beta,1);
+      break;
+      }
       return 0;
     }
   }
@@ -200,7 +226,7 @@ String rootPage(PageArgument& args) {
   String buf;
   char line[300];
 
-  sprintf(line,"<h3><a href=\"/config\">Configuration</a>: %s</h3><p>Time: %s Value: %0.1f %s\n<pre>",name,ts,temperature,unit);
+  sprintf(line,"<h3><a href=\"/config\">Configuration</a>: %s</h3><p>Time: %s Value: %0.1f %s\n<pre>",name,ts,result,unit);
   buf=line;
   i=resultn<RESULTL?0:resulti;
   for(j=-resultn+1;j<=0;j++){
@@ -218,6 +244,13 @@ String cfgPage(PageArgument& args) {
   char line[200];
 
   if (args.hasArg("filename")){
+    File mruFile=LittleFS.open("/mru.txt","w");
+    if(mruFile){
+      mruFile.print(args.arg("filename").c_str());
+      mruFile.close();
+      Serial.print("wrote: ");
+      Serial.println(args.arg("filename").c_str());
+    }
     if(!config(args.arg("filename").c_str())) buf+="<p>Done...";
     else buf+="<p>Config failed...";
   }
@@ -269,7 +302,7 @@ bool handleAcs(HTTPMethod method, String uri) {
         "<html>"
         "<body>"
         "<h1><a href=/>Logging temperature meter (ltm)</a></h1>"
-        "<h2>LTM1 configuration</h2>"
+        "<h2>ltm configuration</h2>"
         "{{CONFIG}}"
         "</body>"
         "</html>"));
@@ -303,7 +336,17 @@ void setup(){
     
   if (LittleFS.begin()){
     Serial.println("Mounted file system");
-    config("/default.cfg");
+    strcpy(configfilename,"/default.cfg");
+    File mruFile=LittleFS.open("/mru.txt","r");
+    if(mruFile){
+      size_t mrusize=mruFile.size();
+      std::unique_ptr<char[]> buf(new char[mrusize]);
+      mruFile.readBytes(buf.get(),mrusize);
+      mruFile.close();
+      strncpy(configfilename,buf.get(),mrusize);
+      configfilename[mrusize]='\0';
+    }
+    config(configfilename);
   }
   else{
     Serial.println("Failed to mount FS");
@@ -386,33 +429,48 @@ float self;
       }
 
     // calculate average vin
-    vin=AdcAccumulator/1024.0*vref*(r13+r14)/r14/avg;
+//    vin=AdcAccumulator/1024.0*vref*(r13+r14)/r14/avg;
+    vin=intercept+AdcAccumulator*slope/avg;
     //calculate rt
-    rt=vin/((vcc-vin)/rs);
-    //calculate self heating
-    self=vin*vin/rt/dissfact; //zero self heating for now
-    //calculate temperature - Steinhart-Hart model
-    temperature=1/(sha+shb*log(rt)+shc*pow(log(rt),3))-273.15-self+toffset;
-     // temperature=rt;
+    switch(algorithm[0]){
+    case 'v':
+      //input voltage
+      Serial.println("mode: Vin");
+      result=vin*1000;
+      break;
+    case 's':
+      //Steinhart-Hart
+      rt=vin/((vcc-vin)/rs);
+      //calculate self heating
+      self=vin*vin/rt/dissfact; //zero self heating for now
+      //calculate temperature - Steinhart-Hart model
+      result=1/(sha+shb*log(rt)+shc*pow(log(rt),3))-273.15-self+toffset;
+       // result=rt;
+      break;
+    case 'b':
+      //B equation
+      rt=vin/((vcc-vin)/rs);
+      //calculate self heating
+      self=vin*vin/rt/dissfact; //zero self heating for now
+      //calculate temperature - B equation
+      result=1/(log(rt/r25)/beta+1/(273.15+25))-273.15-self+toffset;
+      break;
+    }     
     
     //write circular buffer
-    result2[resulti]=temperature;
+    result2[resulti]=result;
     strcpy(result1[resulti],ts);
     if(++resulti==RESULTL){resulti=0;}
     if(resultn<RESULTL){resultn++;}
-    if(Serial.available()<=0){
-      Serial.print(ts);
-      Serial.print(",");
-      Serial.println(temperature,1);
-      }
-//revise this for temp
+    Serial.print(ts);
+    Serial.print(",");
+    Serial.println(result,1);
     // Print a message to the LCD.
-    lbg.drawValue((temperature-lcdfsd+144)/3,48);// 3C per step
+    lbg.drawValue((result-lcdfsd+144)/3,48);// 3C per step
     lcd.setCursor(0,1);
     lcd.print(ts2);
     lcd.print(" ");
-// change dB
-    lcd.print(temperature,1);
+    lcd.print(result,1);
     lcd.print(" ");
     lcd.print(unit);
     lcd.print("       ");
