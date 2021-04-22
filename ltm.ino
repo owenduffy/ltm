@@ -32,6 +32,7 @@ WebServer  server;
 #endif
 #include <WiFiManager.h>
 #include <ArduinoJson.h>
+#define LCDSTEPS 48
 
 const char ver[]="0.01";
 char hostname[11]="ltm01";
@@ -42,15 +43,14 @@ unsigned AdcAccumulator; // variable to accumulate the value coming from the sen
 float vin;
 float rt;
 int avg=3;
-char unit[9]="";
-int lcdfsd=0;
+float lcdmin,lcdmax,lcdslope;
 float vref=1.0,vcc=3.3,r13=2.2e5,r14=1e5,toffset=0.0,dissfact=1e6;
-float slope,intercept,rs,sha,shb,shc,beta,r25;
+float slope,intercept,rs,sha,shb,shc,beta,tref,rref;
 char name[21];
 char result1[RESULTL][21]; //timestamp array
 float result,result2[RESULTL]; //result array
 int resulti,resultn;
-int i,j;
+int i,j,ticks,interval;
 bool tick1Occured,timeset;
 const int timeZone=0;
 static const char ntpServerName[]="pool.ntp.org";
@@ -63,12 +63,17 @@ Ticker ticker1;
 PageElement  elm;
 PageBuilder  page;
 String currentUri;
-char ts[21],ts2[7],algorithm[2],configfilename[32];
+char ts[21],ts2[10],algorithm[2],configfilename[32];
 
+//----------------------------------------------------------------------------------
 void cbtick1(){
-  tick1Occured=true;
+  if(ticks)
+    ticks--;
+  else{
+    ticks=interval-1;
+    tick1Occured=true;
+  }
 }
-
 //----------------------------------------------------------------------------------
 const int NTP_PACKET_SIZE = 48; // NTP time is in the first 48 bytes of message
 byte packetBuffer[NTP_PACKET_SIZE]; //buffer to hold incoming & outgoing packets
@@ -129,8 +134,8 @@ void sendNTPpacket(IPAddress &address)
 //----------------------------------------------------------------------------------
 int config(const char* cfgfile){
   StaticJsonDocument<1000> doc; //on stack  arduinojson.org/assistant
-    Serial.println("config file");
-    Serial.println(cfgfile);
+  Serial.println("config file");
+  Serial.println(cfgfile);
   if (LittleFS.exists(cfgfile)) {
     //file exists, reading and loading
     lcd.clear();
@@ -164,8 +169,15 @@ int config(const char* cfgfile){
       algorithm[1]='\0';
       Serial.print("Algorithm: ");
       Serial.print(algorithm);
+      lcdmin=json["lcdmin"];
+      lcdmax=json["lcdmax"];
+      lcdslope=LCDSTEPS/(lcdmax-lcdmin);
+      vcc=5;
       if (json.containsKey("vcc"))vcc=json["vcc"];
+      dissfact=1e6;
       if (json.containsKey("dissfact"))dissfact=json["dissfact"];
+      interval=1; //default
+      if (json.containsKey("interval"))interval=json["interval"];
       slope=json["slope"];
       intercept=json["intercept"];
       toffset=json["toffset"];
@@ -174,18 +186,20 @@ int config(const char* cfgfile){
       shb=json["shb"];
       shc=json["shc"];
       avg=json["avg"];
-      r25=json["r25"];
+      tref=25;
+      rref=json["tref"];
+      rref=json["rref"];
       beta=json["beta"];
-      lcdfsd=json["lcdfsd"];
-      strncpy(unit,json["unit"],sizeof(unit));
       strncpy(name,json["name"],sizeof(name));
-      unit[sizeof(unit)-1]='\0';
+      name[sizeof(name)-1]='\0';
       Serial.print(", Slope: ");
       Serial.print(slope,5);
       Serial.print(", Intercept: ");
       Serial.print(intercept,5);
-      Serial.print(", lcdfsd: ");
-      Serial.println(lcdfsd,1);
+      Serial.print(", lcdmin: ");
+      Serial.print(lcdmin,1);
+      Serial.print(", lcdmax: ");
+      Serial.println(lcdmax,1);
 
       switch(algorithm[0]){
       case 'v':
@@ -215,8 +229,10 @@ int config(const char* cfgfile){
       Serial.print(dissfact,5);
       Serial.print(", toffset: ");
       Serial.print(toffset,2);
-      Serial.print(", r25: ");
-      Serial.print(r25,1);
+      Serial.print(", tref: ");
+      Serial.print(tref,1);
+      Serial.print(", rref: ");
+      Serial.print(rref,1);
       Serial.print(", beta: ");
       Serial.println(beta,1);
       break;
@@ -231,7 +247,7 @@ String rootPage(PageArgument& args) {
   String buf;
   char line[300];
 
-  sprintf(line,"<h3><a href=\"/config\">Configuration</a>: %s</h3><p>Time: %s Value: %0.1f %s\n<pre>",name,ts,result,unit);
+  sprintf(line,"<h3><a href=\"/config\">Configuration</a>: %s</h3><p>Time: %s Value: %0.1f&deg;\n<pre>",name,ts,result);
   buf=line;
   i=resultn<RESULTL?0:resulti;
   for(j=-resultn+1;j<=0;j++){
@@ -409,8 +425,7 @@ void setup(){
 
   ticker1.attach(1,cbtick1);
   lcd.clear();
-  Serial.print("DateTime, ");
-  Serial.println(unit);
+  Serial.println("DateTime, °");
 }
 //----------------------------------------------------------------------------------
 void loop(){
@@ -425,7 +440,7 @@ float self;
     tick1Occured = false;
     t=now();
     sprintf(ts,"%04d-%02d-%02dT%02d:%02d:%02dZ",year(t),month(t),day(t),hour(t),minute(t),second(t));
-    sprintf(ts2,"%02d%02d%02d",hour(t),minute(t),second(t));
+    sprintf(ts2,"%02d:%02d:%02d",hour(t),minute(t),second(t));
     AdcAccumulator=0;
     for(i=avg;i--;){
       //read the value from the thermistor:
@@ -434,13 +449,11 @@ float self;
       }
 
     // calculate average vin
-//    vin=AdcAccumulator/1024.0*vref*(r13+r14)/r14/avg;
     vin=intercept+AdcAccumulator*slope/avg;
     //calculate rt
     switch(algorithm[0]){
     case 'v':
       //input voltage
-      Serial.println("mode: Vin");
       result=vin*1000;
       break;
     case 's':
@@ -458,7 +471,7 @@ float self;
       //calculate self heating
       self=vin*vin/rt/dissfact; //zero self heating for now
       //calculate temperature - B equation
-      result=1/(log(rt/r25)/beta+1/(273.15+25))-273.15-self+toffset;
+      result=1/(log(rt/rref)/beta+1/(273.15+tref))-273.15-self+toffset;
       break;
     }     
     
@@ -471,13 +484,12 @@ float self;
     Serial.print(",");
     Serial.println(result,1);
     // Print a message to the LCD.
-    lbg.drawValue((result-lcdfsd+144)/3,48);// 3C per step
+    lbg.drawValue((result-lcdmin)*lcdslope,LCDSTEPS);
     lcd.setCursor(0,1);
     lcd.print(ts2);
     lcd.print(" ");
     lcd.print(result,1);
-    lcd.print(" ");
-    lcd.print(unit);
+    lcd.print("\xdf");
     lcd.print("       ");
   }
   
