@@ -8,7 +8,7 @@ extern "C" {
 //#include "user_interface.h"
 }
 #include <FS.h>
-#include <LittleFS.h>
+//#include <LittleFS.h>
 #include <TimeLib.h>
 #include <Wire.h> 
 #include <LiquidCrystal_I2C.h>
@@ -136,7 +136,11 @@ int config(const char* cfgfile){
   StaticJsonDocument<1000> doc; //on stack  arduinojson.org/assistant
   Serial.println("config file");
   Serial.println(cfgfile);
-  if (LittleFS.exists(cfgfile)) {
+//  if (LittleFS.exists(cfgfile)) {
+  if (SPIFFS.exists(cfgfile)) {
+Serial.println("tr 4");
+Serial.println(cfgfile);
+
     //file exists, reading and loading
     lcd.clear();
     lcd.print("Loading config: ");
@@ -144,7 +148,8 @@ int config(const char* cfgfile){
     lcd.print(cfgfile);
     Serial.println("Reading config file");
     delay(1000);
-    File configFile=LittleFS.open(cfgfile,"r");
+//    File configFile=LittleFS.open(cfgfile,"r");
+    File configFile=SPIFFS.open(cfgfile,"r");
     if (configFile){
       Serial.println("Opened config file");
       resulti=0;
@@ -265,7 +270,8 @@ String cfgPage(PageArgument& args) {
   char line[200];
 
   if (args.hasArg("filename")){
-    File mruFile=LittleFS.open("/mru.txt","w");
+//    File mruFile=LittleFS.open("/mru.txt","w");
+    File mruFile=SPIFFS.open("/mru.txt","w");
     if(mruFile){
       mruFile.print(args.arg("filename").c_str());
       mruFile.close();
@@ -276,7 +282,8 @@ String cfgPage(PageArgument& args) {
     else buf+="<p>Config failed...";
   }
   else{
-    Dir dir = LittleFS.openDir("/");
+//    Dir dir = LittleFS.openDir("/");
+    Dir dir = SPIFFS.openDir("/");
     buf="<h3>Click on desired configuration file:</h3>";
     while (dir.next()){
      filename=dir.fileName();
@@ -355,17 +362,25 @@ void setup(){
   Serial.print(ESP.getFreeSketchSpace());
   Serial.print("\n\n");
     
-  if (LittleFS.begin()){
+//  if (LittleFS.begin()){
+  if (SPIFFS.begin()){
     Serial.println("Mounted file system");
     strcpy(configfilename,"/default.cfg");
-    File mruFile=LittleFS.open("/mru.txt","r");
+    Serial.println("tr 1");
+    Serial.println(configfilename);
+    
+//    File mruFile=LittleFS.open("/mru.txt","r");
+    File mruFile=SPIFFS.open("/mru.txt","r");
     if(mruFile){
+    Serial.println("tr 3");
       size_t mrusize=mruFile.size();
       std::unique_ptr<char[]> buf(new char[mrusize]);
       mruFile.readBytes(buf.get(),mrusize);
       mruFile.close();
       strncpy(configfilename,buf.get(),mrusize);
       configfilename[mrusize]='\0';
+    Serial.println("tr 2");
+    Serial.println(configfilename);
     }
     config(configfilename);
   }
