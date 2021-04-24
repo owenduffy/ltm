@@ -7,7 +7,13 @@
 extern "C" {
 //#include "user_interface.h"
 }
+#define MYFS LittleFS
+#if MYFS == LittleFS
+#include <LittleFS.h>
+#else
 #include <FS.h>
+#endif
+//#include <FS.h>
 //#include <LittleFS.h>
 #include <TimeLib.h>
 #include <Wire.h> 
@@ -34,8 +40,10 @@ WebServer  server;
 #include <ArduinoJson.h>
 #define LCDSTEPS 48
 
+#define LCDTYPE 1
 const char ver[]="0.01";
 char hostname[11]="ltm01";
+WiFiManager wifiManager;
 int t=0;
 byte lcdNumCols=16;
 int sensorPin=A0; // select the input pin for the thermistor
@@ -54,7 +62,12 @@ int i,j,ticks,interval;
 bool tick1Occured,timeset;
 const int timeZone=0;
 static const char ntpServerName[]="pool.ntp.org";
-LiquidCrystal_I2C lcd(0x20,4,5,6,0,1,2,3);  //set the LCD I2C address
+#if LCDTYPE == 1
+LiquidCrystal_I2C lcd(0x20,4,5,6,0,1,2,3);  //set the LCD I2C address and pins
+#endif
+#if LCDTYPE == 2
+LiquidCrystal_I2C lcd(0x27,2,1,0,4,5,6,7);  //set the LCD I2C address and pins
+#endif
 LcdBarGraphX lbg(&lcd,lcdNumCols);
 WiFiUDP udp;
 String header; //HTTP request
@@ -137,7 +150,7 @@ int config(const char* cfgfile){
   Serial.println("config file");
   Serial.println(cfgfile);
 //  if (LittleFS.exists(cfgfile)) {
-  if (SPIFFS.exists(cfgfile)) {
+  if (MYFS.exists(cfgfile)) {
 Serial.println("tr 4");
 Serial.println(cfgfile);
 
@@ -149,7 +162,7 @@ Serial.println(cfgfile);
     Serial.println("Reading config file");
     delay(1000);
 //    File configFile=LittleFS.open(cfgfile,"r");
-    File configFile=SPIFFS.open(cfgfile,"r");
+    File configFile=MYFS.open(cfgfile,"r");
     if (configFile){
       Serial.println("Opened config file");
       resulti=0;
@@ -271,7 +284,7 @@ String cfgPage(PageArgument& args) {
 
   if (args.hasArg("filename")){
 //    File mruFile=LittleFS.open("/mru.txt","w");
-    File mruFile=SPIFFS.open("/mru.txt","w");
+    File mruFile=MYFS.open("/mru.txt","w");
     if(mruFile){
       mruFile.print(args.arg("filename").c_str());
       mruFile.close();
@@ -283,7 +296,7 @@ String cfgPage(PageArgument& args) {
   }
   else{
 //    Dir dir = LittleFS.openDir("/");
-    Dir dir = SPIFFS.openDir("/");
+    Dir dir = MYFS.openDir("/");
     buf="<h3>Click on desired configuration file:</h3>";
     while (dir.next()){
      filename=dir.fileName();
@@ -344,8 +357,7 @@ bool handleAcs(HTTPMethod method, String uri) {
 }
 //----------------------------------------------------------------------------------
 void setup(){
-  WiFiManager wifiManager;
-
+  WiFi.mode(WIFI_OFF);
   lcd.begin(16,2);
   lcd.clear();
   lcd.setCursor(0,0);
@@ -363,14 +375,14 @@ void setup(){
   Serial.print("\n\n");
     
 //  if (LittleFS.begin()){
-  if (SPIFFS.begin()){
+  if (MYFS.begin()){
     Serial.println("Mounted file system");
     strcpy(configfilename,"/default.cfg");
     Serial.println("tr 1");
     Serial.println(configfilename);
     
 //    File mruFile=LittleFS.open("/mru.txt","r");
-    File mruFile=SPIFFS.open("/mru.txt","r");
+    File mruFile=MYFS.open("/mru.txt","r");
     if(mruFile){
     Serial.println("tr 3");
       size_t mrusize=mruFile.size();
@@ -393,7 +405,8 @@ void setup(){
   lcd.clear();
   lcd.print("Auto WiFi...");
   WiFi.hostname(hostname);
-  wifiManager.setDebugOutput(false);
+  wifiManager.setDebugOutput(true);
+  wifiManager.setHostname(hostname);
   wifiManager.autoConnect("ltmcfg");
   Serial.println("Connecting...");
   Serial.print(WiFi.hostname());
