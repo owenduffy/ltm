@@ -44,7 +44,7 @@ WebServer  server;
 const char ver[]="0.01";
 char hostname[11]="ltm01";
 WiFiManager wifiManager;
-int t=0;
+int t=0,errflg;
 byte lcdNumCols=16;
 int sensorPin=A0; // select the input pin for the thermistor
 unsigned AdcAccumulator; // variable to accumulate the value coming from the sensor
@@ -357,7 +357,6 @@ bool handleAcs(HTTPMethod method, String uri) {
 }
 //----------------------------------------------------------------------------------
 void setup(){
-  WiFi.mode(WIFI_OFF);
   lcd.begin(16,2);
   lcd.clear();
   lcd.setCursor(0,0);
@@ -407,50 +406,47 @@ void setup(){
   WiFi.hostname(hostname);
   wifiManager.setDebugOutput(true);
   wifiManager.setHostname(hostname);
-  wifiManager.autoConnect("ltmcfg");
+  wifiManager.setConfigPortalTimeout(120);
   Serial.println("Connecting...");
   Serial.print(WiFi.hostname());
   Serial.print(" connecting to ");
   Serial.println(WiFi.SSID());
-  lcd.clear();
-  lcd.print("Host: ");
-  lcd.print(WiFi.hostname());
-//  lcd.print("Connecting...");
-  lcd.setCursor(0,1);
-//  lcd.print("IP: ");
-  lcd.print(WiFi.localIP().toString().c_str());
-  Serial.println(WiFi.localIP().toString().c_str());
-//  lcd.print(" connecting to ");
-//  lcd.print(WiFi.SSID());
-  delay(2000);
+  wifiManager.autoConnect("ltmcfg");
+  if(WiFi.status()==WL_CONNECTED){
+    lcd.clear();
+    lcd.print("Host: ");
+    lcd.print(WiFi.hostname());
+  //  lcd.print("Connecting...");
+    lcd.setCursor(0,1);
+  //  lcd.print("IP: ");
+    lcd.print(WiFi.localIP().toString().c_str());
+    Serial.println(WiFi.localIP().toString().c_str());
+  //  lcd.print(" connecting to ");
+  //  lcd.print(WiFi.SSID());
+    delay(2000);
   
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
+    // Prepare dynamic web page
+    page.exitCanHandle(handleAcs);    // Handles for all requests.
+    page.insert(server);
+  
+    // Print local IP address and start web server
+    Serial.println("");
+    Serial.println("WiFi connected.");
+    Serial.println("IP address: ");
+    Serial.println(WiFi.localIP());
+    Serial.println("Hostname: ");
+    Serial.println(WiFi.hostname());
+    server.begin();
+
+    Serial.println("Starting UDP");
+    udp.begin(localPort);
+    Serial.print("Local port: ");
+    Serial.println(udp.localPort());
+    Serial.println("waiting for sync");
+    setSyncProvider(getNtpTime);
+    timeset=timeStatus()==timeSet;
+    setSyncInterval(36000);
   }
-  
-  // Prepare dynamic web page
-  page.exitCanHandle(handleAcs);    // Handles for all requests.
-  page.insert(server);
-  
-  // Print local IP address and start web server
-  Serial.println("");
-  Serial.println("WiFi connected.");
-  Serial.println("IP address: ");
-  Serial.println(WiFi.localIP());
-  Serial.println("Hostname: ");
-  Serial.println(WiFi.hostname());
-  server.begin();
-
-  Serial.println("Starting UDP");
-  udp.begin(localPort);
-  Serial.print("Local port: ");
-  Serial.println(udp.localPort());
-  Serial.println("waiting for sync");
-  setSyncProvider(getNtpTime);
-  timeset=timeStatus()==timeSet;
-  setSyncInterval(36000);
-
   ticker1.attach(1,cbtick1);
   lcd.clear();
   Serial.println("DateTime, °");
@@ -464,6 +460,7 @@ float rt;
 float self;
 
   prevmillis=-millis();
+  errflg=0;
   if (tick1Occured == true){
     tick1Occured = false;
     t=now();
@@ -490,8 +487,8 @@ float self;
       //calculate self heating
       self=vin*vin/rt/dissfact; //zero self heating for now
       //calculate temperature - Steinhart-Hart model
-      result=1/(sha+shb*log(rt)+shc*pow(log(rt),3))-273.15-self+toffset;
-       // result=rt;
+      if(rt>0) result=1/(sha+shb*log(rt)+shc*pow(log(rt),3))-273.15-self+toffset;
+      else errflg=1;
       break;
     case 'b':
       //B equation
@@ -499,28 +496,30 @@ float self;
       //calculate self heating
       self=vin*vin/rt/dissfact; //zero self heating for now
       //calculate temperature - B equation
-      result=1/(log(rt/rref)/beta+1/(273.15+tref))-273.15-self+toffset;
+      if(rt>0) result=1/(log(rt/rref)/beta+1/(273.15+tref))-273.15-self+toffset;
+      else errflg=1;
       break;
     }     
     
-    //write circular buffer
-    result2[resulti]=result;
-    strcpy(result1[resulti],ts);
-    if(++resulti==RESULTL){resulti=0;}
-    if(resultn<RESULTL){resultn++;}
-    Serial.print(ts);
-    Serial.print(",");
-    Serial.println(result,1);
-    // Print a message to the LCD.
-    lbg.drawValue((result-lcdmin)*lcdslope,LCDSTEPS);
-    lcd.setCursor(0,1);
-    lcd.print(ts2);
-    lcd.print(" ");
-    lcd.print(result,1);
-    lcd.print("\xdf");
-    lcd.print("       ");
+    if(!errflg){
+      //write circular buffer
+      result2[resulti]=result;
+      strcpy(result1[resulti],ts);
+      if(++resulti==RESULTL){resulti=0;}
+      if(resultn<RESULTL){resultn++;}
+      Serial.print(ts);
+      Serial.print(",");
+      Serial.println(result,1);
+      // Print a message to the LCD.
+      lbg.drawValue((result-lcdmin)*lcdslope,LCDSTEPS);
+      lcd.setCursor(0,1);
+      lcd.print(ts2);
+      lcd.print(" ");
+      lcd.print(result,1);
+      lcd.print("\xdf");
+      lcd.print("       ");
+    }
   }
-  
   server.handleClient();
   prevmillis+=millis();
 //    if(prevmillis>20){Serial.print("dur :"); Serial.println(prevmillis);}
