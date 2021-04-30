@@ -265,7 +265,7 @@ String rootPage(PageArgument& args) {
   String buf;
   char line[300];
 
-  sprintf(line,"<h3><a href=\"/config\">Configuration</a>: %s</h3><p>Time: %s Value: %0.1f&deg;\n<pre>",name,ts,result);
+  sprintf(line,"<h3><a href=\"/config\">Configuration</a>: %s</h3><p>Time: %s Value: %0.1f&deg;\n<pre>\n",name,ts,result);
   buf=line;
   i=resultn<RESULTL?0:resulti;
   for(j=-resultn+1;j<=0;j++){
@@ -357,6 +357,9 @@ bool handleAcs(HTTPMethod method, String uri) {
 }
 //----------------------------------------------------------------------------------
 void setup(){
+  WiFi.mode(WIFI_OFF);
+  //WiFi.setOutputPower 0-20.5 dBm in 0.25 increments
+  WiFi.setOutputPower(0); //min power for ADC noise reduction
   lcd.begin(16,2);
   lcd.clear();
   lcd.setCursor(0,0);
