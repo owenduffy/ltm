@@ -31,6 +31,7 @@ ESP8266WebServer  server;
 WebServer  server;
 #endif
 #include <WiFiManager.h>
+#define ARDUINOJSON_USE_DOUBLE 1
 #include <ArduinoJson.h>
 #define LCDSTEPS 48
 
@@ -139,8 +140,14 @@ void sendNTPpacket(IPAddress &address)
   udp.endPacket();
 }
 //----------------------------------------------------------------------------------
+void lcdrst(){
+  lcd.clear(); //clear lcd screen
+  lbg.begin(); //restart LCD bar graph
+}
+//----------------------------------------------------------------------------------
 int config(const char* cfgfile){
-  StaticJsonDocument<1000> doc; //on stack  arduinojson.org/assistant
+//  StaticJsonDocument<2000> doc; //on stack  arduinojson.org/assistant
+  DynamicJsonDocument doc(2048);
   Serial.println(F("config file"));
   Serial.println(cfgfile);
   if (LittleFS.exists(cfgfile)) {
@@ -244,9 +251,11 @@ int config(const char* cfgfile){
       Serial.println(beta,1);
       break;
       }
+      lcdrst();
       return 0;
     }
   }
+  lcdrst();
   return 1;
 }
 //----------------------------------------------------------------------------------
@@ -371,7 +380,6 @@ void setup(){
   WiFi.setOutputPower(0); //min power for ADC noise reduction
   lcd.begin(16,2);
   lcd.clear();
-  lcd.setCursor(0,0);
   lcd.print(F("ltm v"));
   lcd.print(ver);
   lcd.setCursor(0,1);
@@ -455,7 +463,7 @@ void setup(){
     setSyncInterval(36000);
   }
   ticker1.attach(1,cbtick1);
-  lcd.clear();
+  lcdrst();
   Serial.println(F("DateTime, °"));
 }
 //----------------------------------------------------------------------------------
