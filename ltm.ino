@@ -8,14 +8,7 @@
 extern "C" {
 //#include "user_interface.h"
 }
-#define MYFS LittleFS
-#if MYFS == LittleFS
 #include <LittleFS.h>
-#else
-#include <FS.h>
-#endif
-//#include <FS.h>
-//#include <LittleFS.h>
 #include <TimeLib.h>
 #include <Wire.h> 
 #include <LiquidCrystal_I2C.h>
@@ -150,9 +143,7 @@ int config(const char* cfgfile){
   StaticJsonDocument<1000> doc; //on stack  arduinojson.org/assistant
   Serial.println(F("config file"));
   Serial.println(cfgfile);
-//  if (LittleFS.exists(cfgfile)) {
-  if (MYFS.exists(cfgfile)) {
-
+  if (LittleFS.exists(cfgfile)) {
     //file exists, reading and loading
     lcd.clear();
     lcd.print(F("Loading config: "));
@@ -160,8 +151,7 @@ int config(const char* cfgfile){
     lcd.print(cfgfile);
     Serial.println(F("Reading config file"));
     delay(1000);
-//    File configFile=LittleFS.open(cfgfile,"r");
-    File configFile=MYFS.open(cfgfile,"r");
+    File configFile=LittleFS.open(cfgfile,"r");
     if (configFile){
       Serial.println(F("Opened config file"));
       resulti=0;
@@ -285,8 +275,7 @@ String cfgPage(PageArgument& args) {
   char line[200];
 
   if (args.hasArg(F("filename"))){
-//    File mruFile=LittleFS.open("/mru.txt","w");
-    File mruFile=MYFS.open("/mru.txt","w");
+    File mruFile=LittleFS.open("/mru.txt","w");
     if(mruFile){
       mruFile.print(args.arg(F("filename")).c_str());
       mruFile.close();
@@ -297,8 +286,7 @@ String cfgPage(PageArgument& args) {
     else buf+=F("<p>Config failed...");
   }
   else{
-//    Dir dir = LittleFS.openDir("/");
-    Dir dir = MYFS.openDir(F("/"));
+    Dir dir = LittleFS.openDir(F("/"));
     buf=F("<h3>Click on desired configuration file:</h3>");
     while (dir.next()){
      filename=dir.fileName();
@@ -397,14 +385,12 @@ void setup(){
   Serial.print(ESP.getFreeSketchSpace());
   Serial.print(F("\n\n"));
     
-//  if (LittleFS.begin()){
-  if (MYFS.begin()){
+  if (LittleFS.begin()){
     Serial.println(F("Mounted file system"));
     strcpy(configfilename,"/default.cfg");
     Serial.println(configfilename);
     
-//    File mruFile=LittleFS.open("/mru.txt","r");
-    File mruFile=MYFS.open("/mru.txt","r");
+    File mruFile=LittleFS.open("/mru.txt","r");
     if(mruFile){
       size_t mrusize=mruFile.size();
       std::unique_ptr<char[]> buf(new char[mrusize]);
