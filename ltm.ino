@@ -284,16 +284,16 @@ String cfgPage(PageArgument& args) {
   String filename((char *)0);
   char line[200];
 
-  if (args.hasArg("filename")){
+  if (args.hasArg(F("filename"))){
 //    File mruFile=LittleFS.open("/mru.txt","w");
     File mruFile=MYFS.open("/mru.txt","w");
     if(mruFile){
-      mruFile.print(args.arg("filename").c_str());
+      mruFile.print(args.arg(F("filename")).c_str());
       mruFile.close();
-      Serial.print("wrote: ");
-      Serial.println(args.arg("filename").c_str());
+      Serial.print(F("wrote: "));
+      Serial.println(args.arg(F("filename")).c_str());
     }
-    if(!config(args.arg("filename").c_str())) buf+=F("<p>Done...");
+    if(!config(args.arg(F("filename")).c_str())) buf+=F("<p>Done...");
     else buf+=F("<p>Config failed...");
   }
   else{
@@ -333,7 +333,7 @@ bool handleAcs(HTTPMethod method, String uri) {
 
     Serial.println("Request:" + uri);
 
-    if(uri=="/"){
+    if(uri==F("/")){
       page.setUri(uri.c_str());
       elm.setMold(PSTR(
         "<html>"
@@ -384,7 +384,7 @@ void setup(){
   lcd.begin(16,2);
   lcd.clear();
   lcd.setCursor(0,0);
-  lcd.print(F("LTM v"));
+  lcd.print(F("ltm v"));
   lcd.print(ver);
   lcd.setCursor(0,1);
   lcd.print(F("Initialising..."));
