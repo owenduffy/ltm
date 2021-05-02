@@ -4,6 +4,7 @@
 //I2C LCD
 
 #define RESULTL 50
+#define PAGEBUFRESSIZE 3000
 extern "C" {
 //#include "user_interface.h"
 }
@@ -47,7 +48,7 @@ WiFiManager wifiManager;
 int t=0,errflg;
 byte lcdNumCols=16;
 int sensorPin=A0; // select the input pin for the thermistor
-unsigned AdcAccumulator; // variable to accumulate the value coming from the sensor
+long unsigned AdcAccumulator; // variable to accumulate the value coming from the sensor
 float vin;
 float rt;
 int avg=3;
@@ -75,7 +76,7 @@ unsigned int localPort=8888; //local port to listen for UDP packets
 Ticker ticker1;
 PageElement  elm;
 PageBuilder  page;
-String currentUri;
+String currentUri((char *)0);
 char ts[21],ts2[10],algorithm[2],configfilename[32];
 
 //----------------------------------------------------------------------------------
@@ -96,18 +97,18 @@ time_t getNtpTime()
   IPAddress ntpServerIP; // NTP server's ip address
 
   while(udp.parsePacket() > 0); //discard any previously received packets
-  Serial.println("Transmit NTP Request");
+  Serial.println(F("Transmit NTP Request"));
   // get a random server from the pool
   WiFi.hostByName(ntpServerName,ntpServerIP);
   Serial.print(ntpServerName);
-  Serial.print(": ");
+  Serial.print(F(": "));
   Serial.println(ntpServerIP);
   sendNTPpacket(ntpServerIP);
   uint32_t beginWait=millis();
   while (millis()-beginWait<1500) {
     int size=udp.parsePacket();
     if(size>=NTP_PACKET_SIZE){
-      Serial.println("Received NTP response");
+      Serial.println(F("Received NTP response"));
       udp.read(packetBuffer,NTP_PACKET_SIZE); //read packet into the buffer
       unsigned long secsSince1900;
       // convert four bytes starting at location 40 to a long integer
@@ -118,7 +119,7 @@ time_t getNtpTime()
       return secsSince1900-2208988800UL+timeZone*SECS_PER_HOUR;
     }
   }
-  Serial.println("No NTP response");
+  Serial.println(F("No NTP response"));
   return 0; //return 0 if unable to get the time
 }
 
@@ -147,24 +148,22 @@ void sendNTPpacket(IPAddress &address)
 //----------------------------------------------------------------------------------
 int config(const char* cfgfile){
   StaticJsonDocument<1000> doc; //on stack  arduinojson.org/assistant
-  Serial.println("config file");
+  Serial.println(F("config file"));
   Serial.println(cfgfile);
 //  if (LittleFS.exists(cfgfile)) {
   if (MYFS.exists(cfgfile)) {
-Serial.println("tr 4");
-Serial.println(cfgfile);
 
     //file exists, reading and loading
     lcd.clear();
-    lcd.print("Loading config: ");
+    lcd.print(F("Loading config: "));
     lcd.setCursor(0,1);
     lcd.print(cfgfile);
-    Serial.println("Reading config file");
+    Serial.println(F("Reading config file"));
     delay(1000);
 //    File configFile=LittleFS.open(cfgfile,"r");
     File configFile=MYFS.open(cfgfile,"r");
     if (configFile){
-      Serial.println("Opened config file");
+      Serial.println(F("Opened config file"));
       resulti=0;
       resultn=0;
       size_t size=configFile.size();
@@ -173,85 +172,85 @@ Serial.println(cfgfile);
       configFile.readBytes(buf.get(),size);
       DeserializationError error = deserializeJson(doc, buf.get());
       if (error) {
-          Serial.println("Failed to load JSON config");
+          Serial.println(F("Failed to load JSON config"));
           lcd.clear();
-          lcd.print("Error: cfg.json");
+          lcd.print(F("Error: cfg.json"));
           while(1);
       }
       JsonObject json = doc.as<JsonObject>();
-      Serial.println("\nParsed json");
-      strncpy(hostname,json["hostname"],11);
+      Serial.println(F("\nParsed json"));
+      strncpy(hostname,json[F("hostname")],11);
       hostname[10]='\0';
       Serial.println(hostname);
-      strncpy(algorithm,json["algorithm"],1);
+      strncpy(algorithm,json[F("algorithm")],1);
       algorithm[1]='\0';
-      Serial.print("Algorithm: ");
+      Serial.print(F("Algorithm: "));
       Serial.print(algorithm);
-      lcdmin=json["lcdmin"];
-      lcdmax=json["lcdmax"];
+      lcdmin=json[F("lcdmin")];
+      lcdmax=json[F("lcdmax")];
       lcdslope=LCDSTEPS/(lcdmax-lcdmin);
       vcc=5;
-      if (json.containsKey("vcc"))vcc=json["vcc"];
+      if (json.containsKey(F("vcc")))vcc=json[F("vcc")];
       dissfact=1e6;
-      if (json.containsKey("dissfact"))dissfact=json["dissfact"];
+      if (json.containsKey(F("dissfact")))dissfact=json[F("dissfact")];
       interval=1; //default
-      if (json.containsKey("interval"))interval=json["interval"];
-      slope=json["slope"];
-      intercept=json["intercept"];
-      toffset=json["toffset"];
-      rs=json["rs"];
-      sha=json["sha"];
-      shb=json["shb"];
-      shc=json["shc"];
-      avg=json["avg"];
+      if (json.containsKey(F("interval")))interval=json[F("interval")];
+      slope=json[F("slope")];
+      intercept=json[F("intercept")];
+      toffset=json[F("toffset")];
+      rs=json[F("rs")];
+      sha=json[F("sha")];
+      shb=json[F("shb")];
+      shc=json[F("shc")];
+      avg=json[F("avg")];
       tref=25;
-      rref=json["tref"];
-      rref=json["rref"];
-      beta=json["beta"];
-      strncpy(name,json["name"],sizeof(name));
+      rref=json[F("tref")];
+      rref=json[F("rref")];
+      beta=json[F("beta")];
+      strncpy(name,json[F("name")],sizeof(name));
       name[sizeof(name)-1]='\0';
-      Serial.print(", Slope: ");
+      Serial.print(F(", Slope: "));
       Serial.print(slope,5);
-      Serial.print(", Intercept: ");
+      Serial.print(F(", Intercept: "));
       Serial.print(intercept,5);
-      Serial.print(", lcdmin: ");
+      Serial.print(F(", lcdmin: "));
       Serial.print(lcdmin,1);
-      Serial.print(", lcdmax: ");
+      Serial.print(F(", lcdmax: "));
       Serial.println(lcdmax,1);
 
       switch(algorithm[0]){
       case 'v':
       break;
       case 's':
-      Serial.print("vcc: ");
+      Serial.print(F("vcc: "));
       Serial.print(vcc,3);
-      Serial.print(", rs: ");
+      Serial.print(F(", rs: "));
       Serial.print(rs,1);
-      Serial.print(", dissfact: ");
+      Serial.print(F(", dissfact: "));
       Serial.print(dissfact,5);
-      Serial.print(", toffset: ");
+      Serial.print(F(", toffset: "));
       Serial.print(toffset,2);
-      Serial.print(", sha: ");
+      Serial.print(F(", sha: "));
       Serial.print(sha,8);
-      Serial.print(", shb: ");
+      Serial.print(F(", shb: "));
       Serial.print(shb,8);
-      Serial.print(", shc: ");
+      Serial.print(F(", shc: "));
       Serial.println(shc,12);
       break;
       case 'b':
-      Serial.print("vcc: ");
+      Serial.print(F("vcc: "));
       Serial.print(vcc,3);
-      Serial.print(", rs: ");
+      Serial.print(F(", rs: "));
       Serial.print(rs,1);
-      Serial.print(", dissfact: ");
+      Serial.print(F(", dissfact: "));
       Serial.print(dissfact,5);
-      Serial.print(", toffset: ");
+      Serial.print(F(", toffset: "));
       Serial.print(toffset,2);
-      Serial.print(", tref: ");
+      Serial.print(F(", tref: "));
       Serial.print(tref,1);
-      Serial.print(", rref: ");
+      Serial.print(F(", rref: "));
       Serial.print(rref,1);
-      Serial.print(", beta: ");
+      Serial.print(F(", beta: "));
       Serial.println(beta,1);
       break;
       }
@@ -262,24 +261,27 @@ Serial.println(cfgfile);
 }
 //----------------------------------------------------------------------------------
 String rootPage(PageArgument& args) {
-  String buf;
+  String buf((char *)0);
   char line[300];
-
-  sprintf(line,"<h3><a href=\"/config\">Configuration</a>: %s</h3><p>Time: %s Value: %0.1f&deg;\n<pre>\n",name,ts,result);
+  buf.reserve(PAGEBUFRESSIZE);
+  sprintf(line,"<h3><a href=\"/config\">Configuration</a>: %s</h3>\n",name);
   buf=line;
+  buf+=F("<h3><a href=\"/wifi\">WiFi OFF</a></h3>\n");
+  sprintf(line,"<p>Time: %s Value: %0.1f&deg;\n<pre>\n",ts,result);
+  buf+=line;
   i=resultn<RESULTL?0:resulti;
   for(j=-resultn+1;j<=0;j++){
     sprintf(line,"%s,%0.1f\n",result1[i],result2[i]);
     buf+=line;
     if(++i==RESULTL){i=0;}
   }
-  buf+="</pre>";
+  buf+=F("</pre>");
   return buf;
 }
 //----------------------------------------------------------------------------------
 String cfgPage(PageArgument& args) {
-  String filename;
-  String buf;
+  String buf((char *)0);
+  String filename((char *)0);
   char line[200];
 
   if (args.hasArg("filename")){
@@ -291,16 +293,16 @@ String cfgPage(PageArgument& args) {
       Serial.print("wrote: ");
       Serial.println(args.arg("filename").c_str());
     }
-    if(!config(args.arg("filename").c_str())) buf+="<p>Done...";
-    else buf+="<p>Config failed...";
+    if(!config(args.arg("filename").c_str())) buf+=F("<p>Done...");
+    else buf+=F("<p>Config failed...");
   }
   else{
 //    Dir dir = LittleFS.openDir("/");
-    Dir dir = MYFS.openDir("/");
-    buf="<h3>Click on desired configuration file:</h3>";
+    Dir dir = MYFS.openDir(F("/"));
+    buf=F("<h3>Click on desired configuration file:</h3>");
     while (dir.next()){
      filename=dir.fileName();
-      if (filename.endsWith(".cfg")){
+      if (filename.endsWith(F(".cfg"))){
         Serial.println(filename);
         sprintf(line,"<p><a href=\"/config?filename=%s\">%s</a>\n",filename.c_str(),filename.c_str());
         buf+=line;
@@ -310,6 +312,12 @@ String cfgPage(PageArgument& args) {
   return buf;
 }  
 //----------------------------------------------------------------------------------
+String wifiPage(PageArgument& args) {
+  Serial.println(F("WiFi OFF"));
+  WiFi.mode(WIFI_OFF);
+  return F("");
+//  return "<h3>WiFi shutdown</h3>\nWiFi off, reboot to recover WiFi capability...";
+}  //----------------------------------------------------------------------------------
 // This function creates dynamic web page by each request.
 // It is called twice at one time URI request that caused by the structure
 // of ESP8266WebServer class.
@@ -350,6 +358,19 @@ bool handleAcs(HTTPMethod method, String uri) {
       elm.addToken("CONFIG",cfgPage);
       return true;
     }
+    else if(uri=="/wifi"){
+      page.setUri(uri.c_str());
+      elm.setMold(PSTR(
+        "<html>"
+        "<body>"
+        "<h1><a href=/>Logging temperature meter (ltm)</a></h1>"
+        "<h2>wifi configuration</h2>"
+        "{{WIFI}}"
+        "</body>"
+        "</html>"));
+      elm.addToken("WIFI",wifiPage);
+      return true;
+    }
     else{
       return false;    // Not found accessing exception URI.
     }
@@ -363,68 +384,65 @@ void setup(){
   lcd.begin(16,2);
   lcd.clear();
   lcd.setCursor(0,0);
-  lcd.print("LTM v");
+  lcd.print(F("LTM v"));
   lcd.print(ver);
   lcd.setCursor(0,1);
-  lcd.print("Initialising...");
+  lcd.print(F("Initialising..."));
 
   Serial.begin(9600);
   while (!Serial){;} // wait for serial port to connect. Needed for Leonardo only
-  Serial.print("\nSketch size: ");
+  Serial.print(F("\nSketch size: "));
   Serial.print(ESP.getSketchSize());
-  Serial.print("\nFree size: ");
+  Serial.print(F("\nFree size: "));
   Serial.print(ESP.getFreeSketchSpace());
-  Serial.print("\n\n");
+  Serial.print(F("\n\n"));
     
 //  if (LittleFS.begin()){
   if (MYFS.begin()){
-    Serial.println("Mounted file system");
+    Serial.println(F("Mounted file system"));
     strcpy(configfilename,"/default.cfg");
-    Serial.println("tr 1");
     Serial.println(configfilename);
     
 //    File mruFile=LittleFS.open("/mru.txt","r");
     File mruFile=MYFS.open("/mru.txt","r");
     if(mruFile){
-    Serial.println("tr 3");
       size_t mrusize=mruFile.size();
       std::unique_ptr<char[]> buf(new char[mrusize]);
       mruFile.readBytes(buf.get(),mrusize);
       mruFile.close();
       strncpy(configfilename,buf.get(),mrusize);
       configfilename[mrusize]='\0';
-    Serial.println("tr 2");
     Serial.println(configfilename);
     }
     config(configfilename);
   }
   else{
-    Serial.println("Failed to mount FS");
+    Serial.println(F("Failed to mount FS"));
     lcd.clear();
-    lcd.print("Failed to mount FS");
+    lcd.print(F("Failed to mount FS"));
     while(1);
   }
   lcd.clear();
-  lcd.print("Auto WiFi...");
+  lcd.print(F("Auto WiFi..."));
   WiFi.hostname(hostname);
   wifiManager.setDebugOutput(true);
   wifiManager.setHostname(hostname);
   wifiManager.setConfigPortalTimeout(120);
-  Serial.println("Connecting...");
+  Serial.println(F("Connecting..."));
   Serial.print(WiFi.hostname());
-  Serial.print(" connecting to ");
+  Serial.print(F(" connecting to "));
   Serial.println(WiFi.SSID());
   wifiManager.autoConnect("ltmcfg");
   if(WiFi.status()==WL_CONNECTED){
     lcd.clear();
-    lcd.print("Host: ");
+    lcd.print(F("Host: "));
     lcd.print(WiFi.hostname());
-  //  lcd.print("Connecting...");
+  //  lcd.print(F("Connecting..."));
     lcd.setCursor(0,1);
-  //  lcd.print("IP: ");
+  //  lcd.print(F("IP: "));
     lcd.print(WiFi.localIP().toString().c_str());
     Serial.println(WiFi.localIP().toString().c_str());
-  //  lcd.print(" connecting to ");
+  //  lcd.print(F(" connecting to "));
   //  lcd.print(WiFi.SSID());
     delay(2000);
   
@@ -433,26 +451,26 @@ void setup(){
     page.insert(server);
   
     // Print local IP address and start web server
-    Serial.println("");
-    Serial.println("WiFi connected.");
-    Serial.println("IP address: ");
+    Serial.println(F(""));
+    Serial.println(F("WiFi connected."));
+    Serial.println(F("IP address: "));
     Serial.println(WiFi.localIP());
-    Serial.println("Hostname: ");
+    Serial.println(F("Hostname: "));
     Serial.println(WiFi.hostname());
     server.begin();
 
-    Serial.println("Starting UDP");
+    Serial.println(F("Starting UDP"));
     udp.begin(localPort);
-    Serial.print("Local port: ");
+    Serial.print(F("Local port: "));
     Serial.println(udp.localPort());
-    Serial.println("waiting for sync");
+    Serial.println(F("waiting for sync"));
     setSyncProvider(getNtpTime);
     timeset=timeStatus()==timeSet;
     setSyncInterval(36000);
   }
   ticker1.attach(1,cbtick1);
   lcd.clear();
-  Serial.println("DateTime, °");
+  Serial.println(F("DateTime, °"));
 }
 //----------------------------------------------------------------------------------
 void loop(){
@@ -488,7 +506,7 @@ float self;
       //Steinhart-Hart
       rt=vin/((vcc-vin)/rs);
       //calculate self heating
-      self=vin*vin/rt/dissfact; //zero self heating for now
+      self=vin*vin/rt/dissfact;
       //calculate temperature - Steinhart-Hart model
       if(rt>0) result=1/(sha+shb*log(rt)+shc*pow(log(rt),3))-273.15-self+toffset;
       else errflg=1;
@@ -502,6 +520,12 @@ float self;
       if(rt>0) result=1/(log(rt/rref)/beta+1/(273.15+tref))-273.15-self+toffset;
       else errflg=1;
       break;
+    case 'r':
+      //R equation
+      rt=vin/((vcc-vin)/rs);
+      //calculate self heating
+      result=rt;
+      break;
     }     
     
     if(!errflg){
@@ -511,20 +535,20 @@ float self;
       if(++resulti==RESULTL){resulti=0;}
       if(resultn<RESULTL){resultn++;}
       Serial.print(ts);
-      Serial.print(",");
+      Serial.print(F(","));
       Serial.println(result,1);
       // Print a message to the LCD.
       lbg.drawValue((result-lcdmin)*lcdslope,LCDSTEPS);
       lcd.setCursor(0,1);
       lcd.print(ts2);
-      lcd.print(" ");
+      lcd.print(F(" "));
       lcd.print(result,1);
-      lcd.print("\xdf");
-      lcd.print("       ");
+      lcd.print(F("\xdf"));
+      lcd.print(F("       "));
     }
   }
   server.handleClient();
   prevmillis+=millis();
-//    if(prevmillis>20){Serial.print("dur :"); Serial.println(prevmillis);}
+//    if(prevmillis>20){Serial.print(F("dur :")); Serial.println(prevmillis);}
 
 }
